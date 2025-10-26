@@ -62,6 +62,7 @@ let bananas=new Set();
 let player={r:1,c:1,speed:1.0};
 let coins=0, curLevel=1;
 let keys={};
+let purchases={speedBoost:0, doubler:false, magnet:false, xray:false};
 
 const sndCollect = new Audio('https://actions.google.com/sounds/v1/cartoon/wood_plank_flicks.ogg');
 const sndLevel = new Audio('https://actions.google.com/sounds/v1/cartoon/slide_whistle_to_drum_hit.ogg');
@@ -132,6 +133,10 @@ function draw(){
   }
   bananas.forEach(k=>{
     const [r,c] = k.split(',').map(Number);
+    if(player.xray){
+      ctx.fillStyle = 'rgba(255,255,0,0.3)';
+      ctx.fillRect(c*TILE, r*TILE, TILE, TILE);
+    }
     ctx.drawImage(bananaImg, c*TILE+TILE*0.2, r*TILE+TILE*0.2, TILE*0.6, TILE*0.6);
   });
   ctx.drawImage(gorillaImg, player.c*TILE+TILE*0.1, player.r*TILE+TILE*0.05, TILE*0.8, TILE*0.8);
@@ -140,12 +145,30 @@ function draw(){
 function tryMove(dr,dc){
   const nr = player.r + dr, nc = player.c + dc;
   if(nr<0||nc<0||nr>=rows||nc>=cols) return;
-  if(maze[nr][nc]===0){
+  const canWalk = maze[nr][nc]===0 || (player.wallHack && player.wallHack>0);
+  if(canWalk){
+    if(maze[nr][nc]===1 && player.wallHack>0) player.wallHack--;
     player.r = nr; player.c = nc;
     const key = `${nr},${nc}`;
     if(bananas.has(key)){
-      bananas.delete(key); coins += 10; try{ sndCollect.currentTime = 0; sndCollect.play(); }catch(e){}
+      bananas.delete(key); 
+      coins += player.doubler ? 20 : 10; 
+      try{ sndCollect.currentTime = 0; sndCollect.play(); }catch(e){}
       updateUI();
+      if(bananas.size === 0){ try{ sndLevel.currentTime = 0; sndLevel.play(); }catch(e){}; curLevel++; setTimeout(startLevel, 300); }
+    }
+    // Banana Magnet: collect nearby bananas
+    if(player.magnet){
+      [[0,1],[0,-1],[1,0],[-1,0]].forEach(([dr2,dc2])=>{
+        const mr=nr+dr2, mc=nc+dc2;
+        const mkey=`${mr},${mc}`;
+        if(bananas.has(mkey)){
+          bananas.delete(mkey);
+          coins += player.doubler ? 20 : 10;
+          try{ sndCollect.currentTime=0; sndCollect.play(); }catch(e){}
+          updateUI();
+        }
+      });
       if(bananas.size === 0){ try{ sndLevel.currentTime = 0; sndLevel.play(); }catch(e){}; curLevel++; setTimeout(startLevel, 300); }
     }
   }
@@ -166,16 +189,126 @@ function gameLoop(){
   requestAnimationFrame(gameLoop);
 }
 
-openShopBtn.onclick = ()=>{
+const shopItems = [
+  {
+    name:'Speed Boost', 
+    cost:100, 
+    desc:'Move faster through the maze', 
+    limit:5, 
+    check:()=>purchases.speedBoost<5, 
+    buy:()=>{player.speed+=0.1; purchases.speedBoost++;},
+    getStatus:()=>purchases.speedBoost<5 ? `${purchases.speedBoost}/5` : 'MAXED'
+  },
+  {
+    name:'Banana Doubler', 
+    cost:150, 
+    desc:'Earn 20 coins per banana instead of 10', 
+    limit:1, 
+    check:()=>!purchases.doubler, 
+    buy:()=>{player.doubler=true; purchases.doubler=true;},
+    getStatus:()=>purchases.doubler ? 'OWNED' : 'Available'
+  },
+  {
+    name:'Level Skip', 
+    cost:200, 
+    desc:'Instantly advance to the next level', 
+    buy:()=>{curLevel++; startLevel(); shopDiv.style.display='none';},
+    getStatus:()=>'Unlimited'
+  },
+  {
+    name:'Mega Bonus', 
+    cost:300, 
+    desc:'Receive 500 coins immediately', 
+    buy:()=>{coins+=500; updateUI();},
+    getStatus:()=>'Unlimited'
+  },
+  {
+    name:'Wall Hack', 
+    cost:500, 
+    desc:'Phase through 5 walls', 
+    buy:()=>{player.wallHack=(player.wallHack||0)+5;},
+    getStatus:()=>player.wallHack ? `${player.wallHack} uses left` : 'Buy to activate'
+  },
+  {
+    name:'Banana Magnet', 
+    cost:250, 
+    desc:'Auto-collect bananas in adjacent tiles', 
+    limit:1, 
+    check:()=>!purchases.magnet, 
+    buy:()=>{player.magnet=true; purchases.magnet=true;},
+    getStatus:()=>purchases.magnet ? 'OWNED' : 'Available'
+  },
+  {
+    name:'X-Ray Vision', 
+    cost:400, 
+    desc:'Highlights all banana locations', 
+    limit:1, 
+    check:()=>!purchases.xray, 
+    buy:()=>{player.xray=true; purchases.xray=true;},
+    getStatus:()=>purchases.xray ? 'OWNED' : 'Available'
+  }
+];
+
+function renderShop(){
   shopItemsDiv.innerHTML = '';
-  const items = [{name:'Speed Boost', cost:100, desc:'Move faster by 10%', buy:()=>player.speed+=0.1}];
-  items.forEach(it=>{
-    const div = document.createElement('div'); div.style.marginBottom='6px';
-    div.textContent = `${it.name} - ${it.cost} coins`;
-    const b = document.createElement('button'); b.style.marginLeft='8px'; b.textContent='Buy';
-    b.onclick = ()=>{ if(coins>=it.cost){ coins-=it.cost; it.buy(); try{ sndBuy.currentTime=0; sndBuy.play(); }catch(e){}; updateUI(); alert('Purchased '+it.name); } else alert('Not enough coins'); };
-    div.appendChild(b); shopItemsDiv.appendChild(div);
+  shopItems.forEach(it=>{
+    const isOwned = it.check && !it.check();
+    const canAfford = coins >= it.cost;
+    
+    const itemDiv = document.createElement('div');
+    itemDiv.style.cssText = 'margin-bottom:10px;background:#2a2a2a;padding:12px;border-radius:8px;border:2px solid #444;display:flex;justify-content:space-between;align-items:center;';
+    if(isOwned) itemDiv.style.borderColor = '#666';
+    
+    const infoDiv = document.createElement('div');
+    infoDiv.style.flex = '1';
+    infoDiv.innerHTML = `
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+        <span style="font-size:20px;">${it.icon}</span>
+        <span style="font-weight:bold;font-size:16px;">${it.name}</span>
+        <span style="color:#ffd700;font-size:14px;">${it.cost} coins</span>
+      </div>
+      <div style="color:#aaa;font-size:13px;margin-bottom:4px;">${it.desc}</div>
+      <div style="color:${isOwned?'#4a9b4a':'#70aaff'};font-size:12px;font-weight:bold;">Status: ${it.getStatus()}</div>
+    `;
+    
+    const buyBtn = document.createElement('button');
+    buyBtn.textContent = isOwned ? 'Owned' : 'Buy';
+    buyBtn.style.cssText = 'padding:10px 20px;font-size:14px;min-width:80px;';
+    
+    if(isOwned){
+      buyBtn.disabled = true;
+      buyBtn.style.opacity = '0.5';
+      buyBtn.style.cursor = 'not-allowed';
+      buyBtn.style.background = '#555';
+    } else if(!canAfford){
+      buyBtn.style.opacity = '0.6';
+      buyBtn.style.cursor = 'not-allowed';
+    }
+    
+    buyBtn.onclick = ()=>{
+      if(isOwned){ 
+        alert('You already own this item!'); 
+        return; 
+      }
+      if(!canAfford){ 
+        alert(`You need ${it.cost - coins} more coins!`); 
+        return; 
+      }
+      coins -= it.cost;
+      it.buy();
+      try{ sndBuy.currentTime=0; sndBuy.play(); }catch(e){}
+      updateUI();
+      renderShop();
+    };
+    
+    itemDiv.appendChild(infoDiv);
+    itemDiv.appendChild(buyBtn);
+    shopItemsDiv.appendChild(itemDiv);
   });
+}
+
+openShopBtn.onclick = ()=>{
+  renderShop();
   shopDiv.style.display = 'flex';
 };
 closeShopBtn.onclick = ()=> shopDiv.style.display='none';
