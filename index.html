@@ -41,6 +41,7 @@
   <img id="gorillaImg" class="hidden" src="https://super-salmon-aadzcmaf7s.edgeone.app/61851.png" alt="Gorilla">
   <img id="bananaImg" class="hidden" src="https://super-salmon-aadzcmaf7s.edgeone.app/67068.png" alt="Banana">
 
+<script src="https://cdn.jsdelivr.net/npm/party-js@latest/bundle/party.min.js"></script>
 <script>
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
@@ -63,10 +64,12 @@ let player={r:1,c:1,speed:1.0};
 let coins=0, curLevel=1;
 let keys={};
 let purchases={speedBoost:0, doubler:false, magnet:false, xray:false};
+let gameCompleted=false;
 
 const sndCollect = new Audio('https://actions.google.com/sounds/v1/cartoon/wood_plank_flicks.ogg');
 const sndLevel = new Audio('https://actions.google.com/sounds/v1/cartoon/slide_whistle_to_drum_hit.ogg');
 const sndBuy = new Audio('https://actions.google.com/sounds/v1/cartoon/pop.ogg');
+const sndVictory = new Audio('https://bwnzykwnzy.edgeone.app/in8bx-uk75w.mp3');
 
 function setLevelSize(level){
   rows=Math.min(10+Math.floor(level*0.1),40);
@@ -155,7 +158,20 @@ function tryMove(dr,dc){
       coins += player.doubler ? 20 : 10; 
       try{ sndCollect.currentTime = 0; sndCollect.play(); }catch(e){}
       updateUI();
-      if(bananas.size === 0){ try{ sndLevel.currentTime = 0; sndLevel.play(); }catch(e){}; curLevel++; setTimeout(startLevel, 300); }
+      if(bananas.size === 0){ 
+        try{ sndLevel.currentTime = 0; sndLevel.play(); }catch(e){}
+        if(curLevel >= 100){
+          gameCompleted = true;
+          try{ sndVictory.currentTime = 0; sndVictory.play(); }catch(e){}
+          document.querySelector('#ui span:first-child').textContent = 'b͛w͛n͛z͛y͛k͛w͛n͛z͛y͛';
+          setTimeout(()=>{
+            alert('CONGRATULATIONS! YOU COMPLETED ALL 100 LEVELS!\n\nb͛w͛n͛z͛y͛k͛w͛n͛z͛y͛');
+          }, 500);
+        } else {
+          curLevel++; 
+          setTimeout(startLevel, 300);
+        }
+      }
     }
     // Banana Magnet: collect nearby bananas
     if(player.magnet){
@@ -169,7 +185,20 @@ function tryMove(dr,dc){
           updateUI();
         }
       });
-      if(bananas.size === 0){ try{ sndLevel.currentTime = 0; sndLevel.play(); }catch(e){}; curLevel++; setTimeout(startLevel, 300); }
+      if(bananas.size === 0){ 
+        try{ sndLevel.currentTime = 0; sndLevel.play(); }catch(e){}
+        if(curLevel >= 100){
+          gameCompleted = true;
+          try{ sndVictory.currentTime = 0; sndVictory.play(); }catch(e){}
+          document.querySelector('#ui span:first-child').textContent = 'b͛w͛n͛z͛y͛k͛w͛n͛z͛y͛';
+          setTimeout(()=>{
+            alert('CONGRATULATIONS! YOU COMPLETED ALL 100 LEVELS!\n\nb͛w͛n͛z͛y͛k͛w͛n͛z͛y͛');
+          }, 500);
+        } else {
+          curLevel++; 
+          setTimeout(startLevel, 300);
+        }
+      }
     }
   }
 }
@@ -181,6 +210,7 @@ window.addEventListener('keydown', e=>{
 window.addEventListener('keyup', e=>{ keys[e.key.toLowerCase()] = false; });
 
 function gameLoop(){
+  if(gameCompleted) return;
   if(keys['arrowup']||keys['w']){ tryMove(-1,0); keys['arrowup']=keys['w']=false; }
   else if(keys['arrowdown']||keys['s']){ tryMove(1,0); keys['arrowdown']=keys['s']=false; }
   else if(keys['arrowleft']||keys['a']){ tryMove(0,-1); keys['arrowleft']=keys['a']=false; }
