@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>BonziGAME — Maze for Bananas</title>
+  <style>
+    html,body{height:100%;margin:0;font-family:Segoe UI,Arial;background:#1a1a1a;color:#fff;display:flex;flex-direction:column;align-items:center;}
+    #ui{padding:10px;width:100%;max-width:900px;display:flex;justify-content:space-around;align-items:center;background:#333;border-bottom:3px solid #555;}
+    #container{display:flex;justify-content:center;align-items:center;flex-grow:1;width:100%;background:#222;}
+    canvas{border:4px solid #444;border-radius:12px;background:#3d6b3d;image-rendering:pixelated;}
+    #shop{display:none;flex-direction:column;align-items:center;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.85);z-index:10;}
+    #shopItems{margin:20px;display:flex;flex-direction:column;gap:8px;}
+    button{background:#4c8bff;border:none;color:#fff;padding:8px 14px;border-radius:6px;cursor:pointer;font-weight:bold;}
+    button:hover{background:#70aaff;}
+    #loader{position:fixed;left:0;top:0;right:0;bottom:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.6);z-index:20;color:#fff;font-size:18px}
+    img.hidden { display: none; }
+  </style>
+</head>
+<body>
+  <div id="ui">
+    <span>BonziGAME</span>
+    <span>Level: <span id="level">1</span>/100</span>
+    <span>Bananas: <span id="remaining">0</span></span>
+    <span>Coins: <span id="coins">0</span></span>
+    <button id="openShop">Shop</button>
+  </div>
+  <div id="container">
+    <canvas id="game" width="640" height="480"></canvas>
+  </div>
+
+  <div id="shop">
+    <h2>Bonzi Shop</h2>
+    <div id="shopItems"></div>
+    <button id="closeShop">Close</button>
+  </div>
+
+  <div id="loader">Loading images…</div>
+
+  <!-- Direct image links for gorilla and banana -->
+  <img id="gorillaImg" class="hidden" src="https://super-salmon-aadzcmaf7s.edgeone.app/61851.png" alt="Gorilla">
+  <img id="bananaImg" class="hidden" src="https://super-salmon-aadzcmaf7s.edgeone.app/67068.png" alt="Banana">
+
+<script>
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const levelLabel = document.getElementById('level');
+const coinsLabel = document.getElementById('coins');
+const remainingLabel = document.getElementById('remaining');
+const openShopBtn = document.getElementById('openShop');
+const closeShopBtn = document.getElementById('closeShop');
+const shopDiv = document.getElementById('shop');
+const shopItemsDiv = document.getElementById('shopItems');
+const loader = document.getElementById('loader');
+
+const gorillaImg = document.getElementById('gorillaImg');
+const bananaImg = document.getElementById('bananaImg');
+
+let TILE=32, rows=15, cols=20;
+let maze=[];
+let bananas=new Set();
+let player={r:1,c:1,speed:1.0};
+let coins=0, curLevel=1;
+let keys={};
+
+const sndCollect = new Audio('https://actions.google.com/sounds/v1/cartoon/wood_plank_flicks.ogg');
+const sndLevel = new Audio('https://actions.google.com/sounds/v1/cartoon/slide_whistle_to_drum_hit.ogg');
+const sndBuy = new Audio('https://actions.google.com/sounds/v1/cartoon/pop.ogg');
+
+function setLevelSize(level){
+  rows=Math.min(10+Math.floor(level*0.1),40);
+  cols=Math.min(14+Math.floor(level*0.12),60);
+  TILE=Math.max(16,Math.floor(640/cols));
+  canvas.width=cols*TILE; canvas.height=rows*TILE;
+}
+
+function inBounds(r,c){ return r>0 && c>0 && r<rows-1 && c<cols-1; }
+
+function generateMaze(){
+  maze = Array.from({length:rows}, ()=>Array(cols).fill(1));
+  const stack = [[1,1]];
+  maze[1][1] = 0;
+  while(stack.length){
+    const [r,c] = stack[stack.length-1];
+    const dirs = [[0,2],[0,-2],[2,0],[-2,0]].sort(()=>Math.random()-0.5);
+    let carved = false;
+    for(const [dr,dc] of dirs){
+      const nr = r+dr, nc = c+dc;
+      if(inBounds(nr,nc) && maze[nr][nc] === 1){
+        maze[nr][nc] = 0;
+        maze[r + dr/2][c + dc/2] = 0;
+        stack.push([nr,nc]); carved = true; break;
+      }
+    }
+    if(!carved) stack.pop();
+  }
+  if(rows>2 && cols>2) maze[rows-2][cols-2] = 0;
+}
+
+function placeBananas(){
+  bananas.clear();
+  const spots = [];
+  for(let r=1;r<rows-1;r++) for(let c=1;c<cols-1;c++) if(maze[r][c]===0) spots.push([r,c]);
+  const count = Math.min(4 + Math.floor(curLevel*0.3), 20);
+  while(bananas.size < count){
+    const s = spots[Math.floor(Math.random()*spots.length)];
+    const key = `${s[0]},${s[1]}`;
+    if((s[0]!==1||s[1]!==1) && !bananas.has(key)) bananas.add(key);
+  }
+  remainingLabel.textContent = bananas.size;
+}
+
+function startLevel(){
+  setLevelSize(curLevel);
+  generateMaze();
+  placeBananas();
+  player.r = 1; player.c = 1;
+  updateUI();
+  draw();
+}
+
+function updateUI(){ levelLabel.textContent = curLevel; remainingLabel.textContent = bananas.size; coinsLabel.textContent = coins; }
+
+function draw(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  ctx.fillStyle = '#2a2a2a'; ctx.fillRect(0,0,canvas.width,canvas.height);
+  for(let r=0;r<rows;r++){
+    for(let c=0;c<cols;c++){
+      ctx.fillStyle = maze[r][c] ? '#1f1f1f' : '#4a9b4a';
+      ctx.fillRect(c*TILE, r*TILE, TILE, TILE);
+    }
+  }
+  bananas.forEach(k=>{
+    const [r,c] = k.split(',').map(Number);
+    ctx.drawImage(bananaImg, c*TILE+TILE*0.2, r*TILE+TILE*0.2, TILE*0.6, TILE*0.6);
+  });
+  ctx.drawImage(gorillaImg, player.c*TILE+TILE*0.1, player.r*TILE+TILE*0.05, TILE*0.8, TILE*0.8);
+}
+
+function tryMove(dr,dc){
+  const nr = player.r + dr, nc = player.c + dc;
+  if(nr<0||nc<0||nr>=rows||nc>=cols) return;
+  if(maze[nr][nc]===0){
+    player.r = nr; player.c = nc;
+    const key = `${nr},${nc}`;
+    if(bananas.has(key)){
+      bananas.delete(key); coins += 10; try{ sndCollect.currentTime = 0; sndCollect.play(); }catch(e){}
+      updateUI();
+      if(bananas.size === 0){ try{ sndLevel.currentTime = 0; sndLevel.play(); }catch(e){}; curLevel++; setTimeout(startLevel, 300); }
+    }
+  }
+}
+
+window.addEventListener('keydown', e=>{
+  if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','w','a','s','d','W','A','S','D'].includes(e.key)) e.preventDefault();
+  keys[e.key.toLowerCase()] = true;
+});
+window.addEventListener('keyup', e=>{ keys[e.key.toLowerCase()] = false; });
+
+function gameLoop(){
+  if(keys['arrowup']||keys['w']){ tryMove(-1,0); keys['arrowup']=keys['w']=false; }
+  else if(keys['arrowdown']||keys['s']){ tryMove(1,0); keys['arrowdown']=keys['s']=false; }
+  else if(keys['arrowleft']||keys['a']){ tryMove(0,-1); keys['arrowleft']=keys['a']=false; }
+  else if(keys['arrowright']||keys['d']){ tryMove(0,1); keys['arrowright']=keys['d']=false; }
+  draw();
+  requestAnimationFrame(gameLoop);
+}
+
+openShopBtn.onclick = ()=>{
+  shopItemsDiv.innerHTML = '';
+  const items = [{name:'Speed Boost', cost:100, desc:'Move faster by 10%', buy:()=>player.speed+=0.1}];
+  items.forEach(it=>{
+    const div = document.createElement('div'); div.style.marginBottom='6px';
+    div.textContent = `${it.name} - ${it.cost} coins`;
+    const b = document.createElement('button'); b.style.marginLeft='8px'; b.textContent='Buy';
+    b.onclick = ()=>{ if(coins>=it.cost){ coins-=it.cost; it.buy(); try{ sndBuy.currentTime=0; sndBuy.play(); }catch(e){}; updateUI(); alert('Purchased '+it.name); } else alert('Not enough coins'); };
+    div.appendChild(b); shopItemsDiv.appendChild(div);
+  });
+  shopDiv.style.display = 'flex';
+};
+closeShopBtn.onclick = ()=> shopDiv.style.display='none';
+
+// Wait for both images to finish loading before starting game
+let loadedImages = 0;
+[gorillaImg, bananaImg].forEach(img => {
+  if (img.complete) {
+    loadedImages++;
+  } else {
+    img.onload = () => {
+      loadedImages++;
+      if (loadedImages === 2) initGame();
+    };
+    img.onerror = () => {
+      console.warn(`Image failed to load: ${img.src}`);
+      loadedImages++;
+      if (loadedImages === 2) initGame();
+    };
+  }
+});
+
+if (loadedImages === 2) initGame();
+
+function initGame() {
+  loader.style.display = 'none';
+  startLevel();
+  requestAnimationFrame(gameLoop);
+}
+</script>
+</body>
+</html>
